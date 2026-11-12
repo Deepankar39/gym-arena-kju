@@ -1,0 +1,227 @@
+CREATE DATABASE IF NOT EXISTS gym_arena_kju
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE gym_arena_kju;
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS invoices;
+DROP TABLE IF EXISTS order_items;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS diet_requests;
+DROP TABLE IF EXISTS attendance;
+DROP TABLE IF EXISTS qr_tokens;
+DROP TABLE IF EXISTS workout_sessions;
+DROP TABLE IF EXISTS member_connections;
+DROP TABLE IF EXISTS equipment_bookings;
+DROP TABLE IF EXISTS equipment;
+DROP TABLE IF EXISTS memberships;
+DROP TABLE IF EXISTS membership_plans;
+DROP TABLE IF EXISTS wallet_transactions;
+DROP TABLE IF EXISTS wallets;
+DROP TABLE IF EXISTS users;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE users (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(20) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  full_name VARCHAR(100) NOT NULL,
+  email VARCHAR(150) NULL,
+  role ENUM('USER','ADMIN') NOT NULL DEFAULT 'USER',
+  account_status ENUM('PENDING','ACTIVE','SUSPENDED') NOT NULL DEFAULT 'PENDING',
+  must_change_password TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_users_status_role (account_status, role)
+) ENGINE=InnoDB;
+
+CREATE TABLE wallets (
+  user_id BIGINT UNSIGNED PRIMARY KEY,
+  balance INT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_wallet_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE wallet_transactions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  transaction_type ENUM('CREDIT','DEBIT') NOT NULL,
+  amount INT UNSIGNED NOT NULL,
+  reason VARCHAR(255) NOT NULL,
+  created_by BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_wallet_tx_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_wallet_tx_admin FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_wallet_tx_user_time (user_id, created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE membership_plans (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(80) NOT NULL UNIQUE,
+  description VARCHAR(255) NULL,
+  monthly_coin_price INT UNSIGNED NOT NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1
+) ENGINE=InnoDB;
+
+CREATE TABLE memberships (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  plan_id INT UNSIGNED NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  status ENUM('ACTIVE','EXPIRED','CANCELLED') NOT NULL DEFAULT 'ACTIVE',
+  last_renewal_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_membership_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_membership_plan FOREIGN KEY (plan_id) REFERENCES membership_plans(id),
+  INDEX idx_membership_user_end (user_id, end_date)
+) ENGINE=InnoDB;
+
+CREATE TABLE equipment (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  description VARCHAR(500) NULL,
+  status ENUM('AVAILABLE','MAINTENANCE') NOT NULL DEFAULT 'AVAILABLE',
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE equipment_bookings (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  equipment_id INT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  days INT UNSIGNED NOT NULL,
+  status ENUM('BOOKED','CANCELLED','COMPLETED') NOT NULL DEFAULT 'BOOKED',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_booking_equipment FOREIGN KEY (equipment_id) REFERENCES equipment(id),
+  CONSTRAINT fk_booking_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_booking_equipment_dates (equipment_id, start_date, end_date, status),
+  INDEX idx_booking_user (user_id, created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE member_connections (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  requester_id BIGINT UNSIGNED NOT NULL,
+  addressee_id BIGINT UNSIGNED NOT NULL,
+  status ENUM('PENDING','ACCEPTED','REJECTED') NOT NULL DEFAULT 'PENDING',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_connection_requester FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_connection_addressee FOREIGN KEY (addressee_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT chk_connection_different CHECK (requester_id <> addressee_id),
+  UNIQUE KEY uq_connection_direction (requester_id, addressee_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE workout_sessions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  creator_id BIGINT UNSIGNED NOT NULL,
+  partner_id BIGINT UNSIGNED NOT NULL,
+  scheduled_at DATETIME NOT NULL,
+  notes VARCHAR(500) NULL,
+  status ENUM('PLANNED','COMPLETED','CANCELLED') NOT NULL DEFAULT 'PLANNED',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_session_creator FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_session_partner FOREIGN KEY (partner_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE qr_tokens (
+  user_id BIGINT UNSIGNED PRIMARY KEY,
+  token VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_qr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE attendance (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  check_in_at DATETIME NOT NULL,
+  check_out_at DATETIME NULL,
+  checked_in_by BIGINT UNSIGNED NULL,
+  checked_out_by BIGINT UNSIGNED NULL,
+  CONSTRAINT fk_attendance_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_attendance_in_admin FOREIGN KEY (checked_in_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_attendance_out_admin FOREIGN KEY (checked_out_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_attendance_user_time (user_id, check_in_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE diet_requests (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  age INT UNSIGNED NOT NULL,
+  height_cm DECIMAL(5,2) NOT NULL,
+  weight_kg DECIMAL(6,2) NOT NULL,
+  goal VARCHAR(150) NOT NULL,
+  food_preference VARCHAR(100) NULL,
+  allergies VARCHAR(500) NULL,
+  notes VARCHAR(1000) NULL,
+  status ENUM('PENDING','IN_REVIEW','COMPLETED','REJECTED') NOT NULL DEFAULT 'PENDING',
+  plan_text TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_diet_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_diet_status (status, created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE products (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  description VARCHAR(1000) NULL,
+  coin_price INT UNSIGNED NOT NULL,
+  stock_qty INT UNSIGNED NOT NULL DEFAULT 0,
+  image_url VARCHAR(500) NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE orders (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  total_coins INT UNSIGNED NOT NULL,
+  status ENUM('PAID','CANCELLED') NOT NULL DEFAULT 'PAID',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_order_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_order_user_time (user_id, created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE order_items (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  order_id BIGINT UNSIGNED NOT NULL,
+  product_id INT UNSIGNED NOT NULL,
+  quantity INT UNSIGNED NOT NULL,
+  unit_coin_price INT UNSIGNED NOT NULL,
+  CONSTRAINT fk_order_item_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_order_item_product FOREIGN KEY (product_id) REFERENCES products(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE invoices (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  invoice_number VARCHAR(50) NOT NULL UNIQUE,
+  user_id BIGINT UNSIGNED NOT NULL,
+  invoice_type ENUM('MEMBERSHIP','PURCHASE') NOT NULL,
+  reference_id BIGINT UNSIGNED NOT NULL,
+  coin_amount INT UNSIGNED NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_invoice_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_invoice_user_time (user_id, created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE audit_logs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  actor_user_id BIGINT UNSIGNED NULL,
+  action VARCHAR(80) NOT NULL,
+  entity_type VARCHAR(80) NOT NULL,
+  entity_id BIGINT UNSIGNED NULL,
+  details VARCHAR(1000) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_audit_actor FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_audit_time (created_at),
+  INDEX idx_audit_entity (entity_type, entity_id)
+) ENGINE=InnoDB;

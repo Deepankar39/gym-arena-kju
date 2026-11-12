@@ -1,0 +1,38 @@
+﻿# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Java build files
+*.class
+*.jar
+*.war
+*.ear
+target/
+build/
+out/
+.gradle/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Testing and coverage
+coverage/
+
+# Operating system
+.DS_Store
+Thumbs.db
+desktop.ini
